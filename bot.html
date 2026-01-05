@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>AI Bot</title>
+<style>
+  body{margin:0;font:14px/1.4 system-ui;background:#f6f8fa;display:flex;flex-direction:column;height:100vh}
+  #log{flex:1;padding:8px;overflow:auto;border-top:1px solid #ddd}
+  #in{display:flex;border-top:1px solid #ccc}
+  #in input{flex:1;border:none;padding:8px;font:inherit}
+  #in button{background:#0a84ff;color:#fff;border:none;padding:0 12px;cursor:pointer}
+  .u{color:#0a84ff}.b{color:#d33}
+</style>
+<div id="log"></div>
+<form id="in"><input placeholder="Describe action…"><button>Send</button></form>
+
+<script>
+const log = (cls, txt) => logDiv.insertAdjacentHTML('beforeend', `<div class="${cls}">${txt}</div>`);
+const logDiv = document.getElementById('log');
+const input = document.querySelector('input');
+let counter = 0;
+
+// ultra-light “NLP” → command mapper
+function parse(sentence) {
+  sentence = sentence.toLowerCase().trim();
+  if (sentence.includes('click')) {
+    const m = sentence.match(/click(?: the)? ([^(]+?)(?: button| link| btn)?$/);
+    return {cmd:'click', selector:textToSel(m?.[1])};
+  }
+  if (sentence.includes('type') || sentence.includes('fill')) {
+    const m = sentence.match(/(?:type|fill)(?: in)? "?([^"]+)"? (?:in|into) ([^(]+)$/);
+    return {cmd:'type', selector:textToSel(m?.[2]), text:m?.[1]};
+  }
+  if (sentence.includes('press enter')) {
+    const m = sentence.match(/(?:in|on) ([^(]+)/);
+    return {cmd:'key', selector:textToSel(m?.[1]), key:'Enter'};
+  }
+  if (sentence.includes('scroll')) {
+    const m = sentence.match(/scroll (?:down )?(\\d+)/);
+    return {cmd:'scroll', selector:parseInt(m?.[1],10)};
+  }
+  if (sentence.includes('wait')) return {cmd:'wait', selector:1000};
+  throw new Error('Unrecognised command. Try: click, type, press enter, scroll, wait');
+}
+
+// very naive text → CSS selector
+function textToSel(txt) {
+  if (!txt) throw new Error('Missing element description');
+  txt = txt.trim();
+  if (txt.includes('button')) return `button, input[type=submit], input[type=button]`;
+  if (txt.includes('input') || txt.includes('box')) return `input[type=text], input[type=email], input[type=search], textarea`;
+  return `[placeholder*="${txt}" i], [aria-label*="${txt}" i], label:has-text("${txt}"), ::-webkit-textfield-placeholder:text("${txt}")`;
+}
+
+document.getElementById('in').addEventListener('submit', async e => {
+  e.preventDefault();
+  const sentence = input.value;
+  if (!sentence) return;
+  log('u', sentence);
+  input.value = '';
+  try {
+    const task = parse(sentence);
+    const id = ++counter;
+    const payload = { id, ...task };
+    log('b', `→ ${payload.cmd} ${JSON.stringify(payload)}`);
+    window.parent.postMessage(payload, '*');
+    // wait for reply
+    const reply = await new Promise(res => {
+      const h = ({data}) => { if (data.id === id) { window.removeEventListener('message', h); res(data); } };
+      window.addEventListener('message', h);
+    });
+    log('b', reply.ok ? '✅ done' : `❌ ${reply.msg}`);
+  } catch (err) {
+    log('b', `❌ ${err.message}`);
+  }
+});
+</script>
+</html>
